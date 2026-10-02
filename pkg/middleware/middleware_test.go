@@ -464,3 +464,36 @@ func TestResponseWithoutSetCookieIsStored(t *testing.T) {
 		t.Error("a cacheable response without Set-Cookie should be stored, found no matching key")
 	}
 }
+
+// TestSetCookieResponseIsStoredWhenEnabled ensures the cache_set_cookie
+// option restores the previous behavior of storing Set-Cookie responses.
+func TestSetCookieResponseIsStoredWhenEnabled(t *testing.T) {
+	cfg := newTestConfig()
+	cfg.DefaultCache.CacheSetCookie = true
+	handler := NewHTTPCacheHandler(cfg)
+	if len(handler.Storers) == 0 {
+		t.Fatal("expected at least one storer to be registered")
+	}
+	storer := handler.Storers[0]
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/with-cookie-enabled", nil)
+	rec := httptest.NewRecorder()
+
+	if err := handler.ServeHTTP(rec, req, cacheableNext("BODY", "session=abc123")); err != nil {
+		t.Fatalf("ServeHTTP failed: %v", err)
+	}
+
+	stored := false
+	for _, k := range storer.ListKeys() {
+		if strings.Contains(k, "/with-cookie-enabled") {
+			stored = true
+			break
+		}
+	}
+	if !stored {
+		t.Error("a Set-Cookie response should be stored when cache_set_cookie is enabled, found no matching key")
+	}
+	if cs := rec.Header().Get("Cache-Status"); strings.Contains(cs, "UNCACHEABLE-SET-COOKIE") {
+		t.Errorf("unexpected Cache-Status detail UNCACHEABLE-SET-COOKIE with cache_set_cookie enabled, got %q", cs)
+	}
+}
